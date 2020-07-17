@@ -5,7 +5,7 @@ output: html_notebook
 
 shuffel Data
 ```{r}
-bedPath <- "Data/SuperEN_bed"
+bedPath <- "Data/SuperEN_bed/"
 soxPath <- "Data/Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
 my.mm10Genome <- "Data/my.mm10Genome"
 
