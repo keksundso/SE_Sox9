@@ -1,0 +1,196 @@
+---
+title: "Finding Correlation between Superenhancern und Sox9 peaks"
+output: html_notebook
+---
+
+shuffel Data
+```{r}
+bedPath <- "Data/SuperEN_bed"
+soxPath <- "Data/Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
+my.mm10Genome <- "Data/my.mm10Genome"
+
+getwd()
+
+for (filePath in list.files(bedPath, full.names = TRUE, pattern = "*.bed")) {
+    fileName <- tools::file_path_sans_ext(basename(filePath))
+    sortedName <-   paste0(tools::file_path_sans_ext(filePath),"_sorted.bed")
+    shuffeltName <-   paste0(tools::file_path_sans_ext(filePath),"_shuffeld.bed")
+    sortedshuffeltName <-   paste0(tools::file_path_sans_ext(filePath),"_shuffeld_sorted.bed")
+    distancTable <- file.path(paste0(sortedName,"_VSSox9.tsv"))
+    distancTableSuffeld <- file.path(paste0(sortedshuffeltName,"_VSSox9.tsv"))
+    
+    system(paste0("bedtools shuffle -i ",filePath," -g ",my.mm10Genome," > ",shuffeltName))
+    system(paste0("bedtools sort -i ",shuffeltName, " > ",sortedshuffeltName ))
+    
+    system(paste0("bedtools sort -i ",filePath, " > ",sortedName ))
+    system(paste0("bedtools closest -d -a ",sortedName, " -b ",soxPath, " > ", distancTable ))
+    system(paste0("bedtools closest -d -a ",sortedshuffeltName, " -b ",soxPath, " > ", distancTableSuffeld ))
+}
+
+```
+
+
+Reading in Data of bedtools closest
+```{r}
+library(readr)
+
+distCov <- function(filePath){
+    colsestOut <- read_delim(filePath,  "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+    colsestOut$hit <- ifelse(colsestOut$X7 == 0, TRUE, FALSE)
+    colsestOut$ID <- paste0(colsestOut$X1,colsestOut$X2,colsestOut$X3)
+    
+    colsestOut <- data.frame(ID=colsestOut$ID,  hit= colsestOut$hit)
+    names(colsestOut)[names(colsestOut)=="hit"] <- basename(filePath)
+    colsestOut <- unique(colsestOut)
+    return(colsestOut)
+    
+}
+fileList <- list.files("Data/closestOutput", full.names = TRUE)
+
+Sox9_SEPC <- distCov(fileList[8])
+Sox9_SEPC_shuffeld <- distCov(fileList[7])
+Sox9_SEHC <- distCov(fileList[6])
+Sox9_SEHC_shuffeld <- distCov(fileList[5])
+ControlSigPC <- distCov(fileList[4])
+ControlSigHC <- distCov(fileList[3])
+ControlDoubPC <- distCov(fileList[2])
+ControlDoubHC <- distCov(fileList[1])
+```
+
+
+```{r}
+countingIt <- function(vector,zeilenName){
+    totalNumber <- length(vector)
+    HitNumber <- length(vector[vector==TRUE])
+    MissNumber <- length(vector[vector==FALSE])
+    ratio <- HitNumber/totalNumber
+    df <- data.frame(totalNumber,HitNumber,MissNumber,ratio)
+    rownames(df) <- zeilenName
+    return(df)
+}
+
+countingDF <- rbind(countingIt(Sox9_SEHC$SE_HC_sorted.bed_VSSox9.tsv,"Sox9_SEHC")
+                    , countingIt(Sox9_SEPC$SE_PC_sorted.bed_VSSox9.tsv,"Sox9_SEPC")
+                    ,countingIt(Sox9_SEHC_shuffeld$SE_HC_shuffeld_sorted.bed_VSSox9.tsv,"Sox9_SEHC_shuffeld")
+                    ,countingIt(Sox9_SEPC_shuffeld$SE_PC_shuffeld_sorted.bed_VSSox9.tsv,"Sox9_SEPC_shuffeld")
+                    , countingIt(ControlDoubPC$ControlDoubleShuffel_PC.tsv ,"ControlDoubPC")
+                    , countingIt(ControlDoubHC$ControlDoubleShuffel_HC.tsv    ,"ControlDoubHC")
+                    , countingIt(ControlSigPC$ControlSigShuffel_PC.tsv    ,"ControlSigPC")
+                    , countingIt(ControlSigHC$ControlSigShuffel_HC.tsv    ,"ControlSigHC")
+                    )
+
+countingDF$cellTyp <- c("HC","PC","HC","PC","C_PC","C_HC","C_PC","C_HC")
+countingDF$unShuffeld <- c("1","1","0","0","0","0","1","1")
+
+#save(countingDF, file= "countingDF_20200318.Rda")
+```
+
+building a modle
+```{r}
+library(brms)
+
+iterValue <- 5000
+warmupValue <- 1000
+
+brmsModle <-
+	brm(data = countingDF, family = binomial,
+		HitNumber | trials(totalNumber) ~  (1 + unShuffeld | cellTyp) 
+		, iter = iterValue, warmup = warmupValue
+		, chains = 2, seed = 11, cores= 3
+		, control = list(adapt_delta = 0.99999999,max_treedepth = 50)
+	)
+
+#save(brmsModle, file= "brmsModle_20200716.Rda" )
+#load("brmsModle_20200716.Rda" )
+```
+
+PPC
+```{r}
+#load("ZS/brmsModle_20200318.Rda")
+#load("ZS/countingDF_20200318.Rda")
+
+library(reshape2)
+library(ggplot2)
+library(gridExtra)
+library(bayesplot)
+library(brms)
+PPCMy <- function(brmsModle,brmsInput,PlotTitle){
+	
+	yrep<- posterior_predict(brmsModle, draws = 500)
+	tmp <- melt(yrep)
+	tmp2 <- data.frame(Var1= 0, Var2= 0, value = brmsInput$HitNumber[!(is.na(brmsInput$HitNumber))])
+	tmp$Real <- FALSE
+	tmp2$Real <- TRUE
+	tmp1 <- rbind(tmp, tmp2)
+
+
+
+	p <- ggplot()+
+		geom_freqpoly(data=tmp, aes(x = value, group = Var1, color=Real)) +
+		geom_freqpoly(data=tmp2, aes(x = value, group = Var1, color=Real)) +
+		scale_x_continuous(trans = "log10") +
+		ggtitle(PlotTitle)
+
+	return(p)
+}
+
+#p <- PPCMy(brmsModle,countingDF,"brmsModle")
+
+yrep<- posterior_predict(brmsModle, draws = 500)
+PPC_plot <- ppc_dens_overlay(countingDF$HitNumber[!(is.na(countingDF$HitNumber))], yrep[1:100, ]) +
+    xlim(0,1000)+ ggtitle("brmsModle")
+
+if (FALSE) {
+  yrep<- posterior_predict(brmsModlePlus, draws = 500)
+  p2 <- ppc_dens_overlay(countingDFGroup$HitNumber[!(is.na(countingDFGroup$HitNumber))], yrep[1:100, ]) +
+      xlim(0,1000)+ ggtitle("brmsModlePlus")
+  
+  pAll <- grid.arrange(p1,p2)
+  
+  looClassic <- loo(brmsModle)
+  looPlus <- loo(brmsModlePlus)
+  
+  
+  x <- loo_compare(looClassic,looPlus)
+  }
+
+```
+
+PPC plot
+```{r}
+PPC_plot +
+    ggtitle("PPC of Sox9 and SE overlap") +
+    xlab("number of overlapping peaks") +theme_linedraw() 
+getwd()
+#ggsave("output/PPC_20200430.tiff", height = 4, width = 6)
+```
+
+
+plotEffectSize
+```{r}
+#load("ZS/brmsModle_20200318.Rda")
+y <- posterior_samples(brmsModle)
+y <- y[,c("r_cellTyp[HC,unShuffeld1]","r_cellTyp[PC,unShuffeld1]","r_cellTyp[C_HC,unShuffeld1]","r_cellTyp[C_PC,unShuffeld1]" )]
+
+
+m1 <- melt(y)
+m1$CellTyp <- ifelse(grepl("HC",m1$variable) , "HC", "PC" ) 
+m1$DataTyp <- ifelse(grepl("C_",m1$variable) , "Control", "Sample" ) 
+
+m1$CellTyp <- factor(m1$CellTyp, levels=c("PC", "HC"))
+m1$DataTyp <- factor(m1$DataTyp, levels=c("Sample", "Control"))
+
+effectPlot <- ggplot(m1, aes(x=value, group=variable, color=CellTyp, linetype= DataTyp))+
+  geom_density() +
+  theme_linedraw() +
+    scale_color_manual(values = c("#ffa500","#4682B4")) +
+    scale_linetype_manual(values = c(1,2)) +
+    ggtitle("Effect size of Sox9 and SE overlap") + xlab("slope")+ ylab("")+
+   labs(color='cell type') +
+   labs(linetype='data type') 
+
+effectPlot
+
+#save(effectPlot, file= "ZS/EffectSizePlot_20200621.ggplot")
+#ggsave("output/EffectSizePlot_20200621.tiff", height = 4, width = 7)
+```
