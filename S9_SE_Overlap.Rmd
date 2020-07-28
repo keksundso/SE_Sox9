@@ -4,12 +4,17 @@ output: html_notebook
 ---
 
 shuffel Data
+
+unelegend way to automaticly sort shuffel and find closest SE Sox9 match
 ```{r}
 bedPath <- "Data/SuperEN_bed/"
-soxPath <- "Data/Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
+unshuffeldsoxPath <- "Data/Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
+shuffeldSoxPath <- "Data/shuffeled_Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
+sortedShuffeldSox9 <- "Data/shuffeled_sorted_Sox9_UCSC_Peaks_detected_by_MACS_sorted.bed"
 my.mm10Genome <- "Data/my.mm10Genome"
+system(paste0("bedtools shuffle -i ",unshuffeldsoxPath," -g ",my.mm10Genome," > ",shuffeldSoxPath)) #shuffling Sox9
+system(paste0("bedtools sort -i ",shuffeldSoxPath, " > ",sortedShuffeldSox9 )) #sorting shuffeld SE
 
-getwd()
 
 for (filePath in list.files(bedPath, full.names = TRUE, pattern = "*.bed")) {
     fileName <- tools::file_path_sans_ext(basename(filePath))
@@ -18,16 +23,32 @@ for (filePath in list.files(bedPath, full.names = TRUE, pattern = "*.bed")) {
     sortedshuffeltName <-   paste0(tools::file_path_sans_ext(filePath),"_shuffeld_sorted.bed")
     distancTable <- file.path(paste0(sortedName,"_VSSox9.tsv"))
     distancTableSuffeld <- file.path(paste0(sortedshuffeltName,"_VSSox9.tsv"))
+    CdistancTable <- file.path(paste0(sortedName,"_VSshuffeldSox9.tsv"))
+    CdistancTableSuffeld <- file.path(paste0(sortedshuffeltName,"_VSshuffeldSox9.tsv"))
     
-    system(paste0("bedtools shuffle -i ",filePath," -g ",my.mm10Genome," > ",shuffeltName))
-    system(paste0("bedtools sort -i ",shuffeltName, " > ",sortedshuffeltName ))
+    system(paste0("bedtools shuffle -i ",filePath," -g ",my.mm10Genome," > ",shuffeltName)) #shuffling SE
+    system(paste0("bedtools sort -i ",shuffeltName, " > ",sortedshuffeltName )) #sorting shuffeld SE
     
-    system(paste0("bedtools sort -i ",filePath, " > ",sortedName ))
-    system(paste0("bedtools closest -d -a ",sortedName, " -b ",soxPath, " > ", distancTable ))
-    system(paste0("bedtools closest -d -a ",sortedshuffeltName, " -b ",soxPath, " > ", distancTableSuffeld ))
-}
-
+    system(paste0("bedtools sort -i ",filePath, " > ",sortedName )) #sorting SE
+    system(paste0("bedtools closest -d -a ",sortedName, " -b ",unshuffeldsoxPath, " > ", distancTable ))
+    system(paste0("bedtools closest -d -a ",sortedshuffeltName, " -b ",unshuffeldsoxPath, " > ", distancTableSuffeld ))
+    
+    system(paste0("bedtools closest -d -a ",sortedName, " -b ",sortedShuffeldSox9, " > ", CdistancTable ))
+    system(paste0("bedtools closest -d -a ",sortedshuffeltName, " -b ",sortedShuffeldSox9, " > ", CdistancTableSuffeld ))
+} 
 ```
+
+```{r}
+system(paste0("cp Data/SuperEN_bed/","SE_HC_shuffeld_sorted.bed_VSshuffeldSox9.tsv"," Data/closestOutput/","ControlDoubleShuffel_HC.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_HC_shuffeld_sorted.bed_VSSox9.tsv"," Data/closestOutput/","SE_HC_shuffeld_sorted.bed_VSSox9.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_HC_sorted.bed_VSshuffeldSox9.tsv"," Data/closestOutput/","ControlSigShuffel_HC.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_HC_sorted.bed_VSSox9.tsv"," Data/closestOutput/","SE_HC_sorted.bed_VSSox9.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_PC_shuffeld_sorted.bed_VSshuffeldSox9.tsv"," Data/closestOutput/","ControlDoubleShuffel_PC.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_PC_shuffeld_sorted.bed_VSSox9.tsv"," Data/closestOutput/","SE_PC_shuffeld_sorted.bed_VSSox9.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_PC_sorted.bed_VSshuffeldSox9.tsv"," Data/closestOutput/","ControlSigShuffel_PC.tsv"))
+system(paste0("cp Data/SuperEN_bed/","SE_PC_sorted.bed_VSSox9.tsv"," Data/closestOutput/","SE_PC_sorted.bed_VSSox9.tsv"))
+```
+
 
 
 Reading in Data of bedtools closest
